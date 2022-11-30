@@ -5,6 +5,6 @@ provider "tyk.io/tyk/tyk" {
   version     = "0.2.0"
   constraints = "0.2.0"
   hashes = [
-    "h1:FjGncuQWAfpBlGHaUaxjaizHRWH0r8cNlQu/KlpC5JM=",
+    "h1:PK43+6H1dJfS1Xvhx+cxpZMvsWREQF7ipf3Cqx0ASCs=",
   ]
 }

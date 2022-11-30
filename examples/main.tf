@@ -25,3 +25,10 @@ resource "tyk_env" "env" {
   org_id   = data.tyk_org.first.uid
 }
 
+resource "tyk_deployment" "deploy" {
+  name ="terraform deployment"
+  team_uid = tyk_team.team.uid
+  org_id   = data.tyk_org.first.uid
+  zone_code=data.tyk_org.first.zone
+  env_uid=tyk_env.env.uid
+}
