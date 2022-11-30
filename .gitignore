@@ -1,3 +1,4 @@
+
 .DS_Store
 terraform-provider-tyk
 bin
@@ -64,3 +65,4 @@ terraform.rc
 terraform
 .idea
 .idea/
+
