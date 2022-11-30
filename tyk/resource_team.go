@@ -50,7 +50,6 @@ func resourceTeamDelete(ctx context.Context, data *schema.ResourceData, m interf
 }
 
 func resourceTeamUpdate(ctx context.Context, data *schema.ResourceData, m interface{}) diag.Diagnostics {
-
 	client := m.(*cloud.APIClient)
 	uid := data.Id()
 	if data.HasChange("name") {

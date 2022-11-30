@@ -38,6 +38,7 @@ func Provider() *schema.Provider {
 		},
 		ResourcesMap: map[string]*schema.Resource{
 			"tyk_team": resourceTeam(),
+			"tyk_env":  resourceEnv(),
 		},
 		DataSourcesMap: map[string]*schema.Resource{
 			"tyk_teams": dataSourceTeams(),

@@ -65,4 +65,9 @@ terraform.rc
 terraform
 .idea
 .idea/
+examples/.terraform.lock.hcl
+examples/.terraform
+examples/terraform.tfstate
+examples/terraform.tfstate.backup
+
 
