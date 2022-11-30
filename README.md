@@ -18,5 +18,5 @@ make install
 Then, run the following command to initialize the workspace and apply the sample configuration.
 
 ```shell
-terraform init && terraform apply
+cd examples && terraform init && terraform apply
 ```
