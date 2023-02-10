@@ -5,9 +5,28 @@ import (
 	"github.com/TykTechnologies/cloud-sdk/cloud"
 	"github.com/antihax/optional"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"log"
 	"time"
+)
+
+const (
+	StateInitialise           = "initialise"
+	StatePreDeploy            = "pre-deploy"
+	StateDeploying            = "deploying"
+	StatePostDeploy           = "post-deploy"
+	StateDeployed             = "deployed"
+	StateDeployingDescendants = "deploying-descendants"
+	StateUpdatingParent       = "updating-parent"
+	StateFailing              = "failing"
+	StateFailed               = "failed"
+	StateDestroying           = "destroying"
+	StateDestroyed            = "destroyed"
+	StateUpdating             = "updating"
+	// tykDbEdgeEndpoints is env variable name.
+	tykDbEdgeEndpoints      = "TYK_DB_EDGEENDPOINTS"
+	DeploymentStatusTimeout = 10 * time.Minute
 )
 
 func resourceDeployment() *schema.Resource {
@@ -193,6 +212,28 @@ func resourceDeploymentCreate(ctx context.Context, data *schema.ResourceData, m 
 			return diag.FromErr(err)
 		}
 	}
+	deployStateConf := &resource.StateChangeConf{
+		Delay:   10 * time.Second,
+		Pending: []string{StateInitialise, StatePreDeploy, StateDeploying},
+		Refresh: checkDeploymentStatusChange(ctx, client, orgId, teamUid, envUid, createDeployment.Payload.UID),
+		Target:  []string{StateDeployed},
+		Timeout: DeploymentStatusTimeout,
+	}
+	_, err = deployStateConf.WaitForStateContext(ctx)
+	if err != nil {
+		return diag.FromErr(err)
+	}
 	resourceDeploymentRead(ctx, data, m)
 	return diags
+}
+
+func checkDeploymentStatusChange(ctx context.Context, client *cloud.APIClient, orgId, teamId, envId, deploymentId string) resource.StateRefreshFunc {
+	return func() (result interface{}, state string, err error) {
+		deployment, _, err := client.DeploymentsApi.GetDeployment(ctx, orgId, teamId, envId, deploymentId, nil)
+		if err != nil {
+			return nil, StateFailed, err
+		}
+
+		return deployment, deployment.Payload.State, nil
+	}
 }

@@ -10,42 +10,43 @@ terraform {
 provider "tyk" {
 
 }
-data "tyk_org" "first" {
+data "tyk_org" "org" {
 
 }
 resource "tyk_team" "team" {
-  name = "Testing tretararform team "
-  oid  = data.tyk_org.first.uid
+  name = "Terraform team"
+  oid  = data.tyk_org.org.uid
 }
 
 
 resource "tyk_env" "env" {
-  name     = "change this  Terraform i changed name"
+  name     = "Terraform env"
   team_uid = tyk_team.team.uid
-  org_id   = data.tyk_org.first.uid
+  org_id   = data.tyk_org.org.uid
 }
 
 resource "tyk_deployment" "home" {
-  name ="test home deployment deployment"
+  name ="Terraform home deployment"
   team_uid = tyk_team.team.uid
-  org_id   = data.tyk_org.first.uid
-  zone_code=data.tyk_org.first.zone
+  org_id   = data.tyk_org.org.uid
+  zone_code=data.tyk_org.org.zone
   env_uid=tyk_env.env.uid
   deploy= true
   delete=true
   purge=true
 }
-resource "tyk_deployment" "gateway" {
-  name ="terraform gateway deployment"
+
+resource "tyk_deployment" "edge" {
+  name ="Terraform edge gateway"
   team_uid = tyk_team.team.uid
-  org_id   = data.tyk_org.first.uid
-  zone_code=data.tyk_org.first.zone
+  org_id   = data.tyk_org.org.uid
+  zone_code=data.tyk_org.org.zone
   env_uid=tyk_env.env.uid
   kind="Gateway"
+  linked_control_plane=tyk_deployment.home.uid
   deploy= true
   delete=true
   purge=true
-  linked_control_plane=tyk_deployment.home.uid
 }
 
 
