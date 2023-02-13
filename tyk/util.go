@@ -53,15 +53,12 @@ func GetOrgInfo(ctx context.Context, client *resty.Client, orgId string) (*OrgIn
 	return &orgInfo, nil
 }
 
-func GenerateUrlFromZone(region string, useStaging bool) (string, error) {
+func GenerateUrlFromZone(region string) (string, error) {
 	regionPart := strings.Split(region, "-")
 	if len(regionPart) != 4 {
 		return "", errors.New("the format of this region is wrong")
 	}
 	suffix := "cloud-ara.tyk.io:37001"
-	if useStaging {
-		suffix = "ara-staging.tyk.technology:37001"
-	}
 	url := fmt.Sprintf("https://controller-aws-%s%s%s.%s", regionPart[1], AbbreviateDirection(regionPart[2]), regionPart[3], suffix)
 	return url, nil
 }
