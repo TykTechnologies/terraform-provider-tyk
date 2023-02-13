@@ -1,21 +1,18 @@
 # Tyk Terraform Provider 
 **This is a POC to test a tyk terraform provider.**
 
-Run the following command to build the provider
+Run the following command to build and install the provider
 
 ```shell
 go build -o terraform-provider-tyk
 ```
 
-## Test sample configuration
-
-First, build and install the provider.
-
 ```shell
 make install
 ```
+## Test sample configuration
 
-Then, run the following command to initialize the workspace and apply the sample configuration.
+After building and installing the provider you can test it with the samples in the example folder.
 
 ```shell
 cd examples && terraform init && terraform apply

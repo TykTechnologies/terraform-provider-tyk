@@ -32,7 +32,6 @@ func dataSourceOrg() *schema.Resource {
 
 func dataSourceOrgRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	var diags diag.Diagnostics
-
 	client := m.(*cloud.APIClient)
 	orgs, _, err := client.OrganisationsApi.GetOrgs(ctx)
 	if err != nil {

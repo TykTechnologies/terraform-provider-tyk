@@ -8,37 +8,27 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"golang.org/x/exp/slices"
 	"log"
 	"net/http"
-	"time"
 )
 
 var (
-	DashboardUrl         = "https://dashboard.cloud-ara.tyk.io"
-	StagingURl           = "https://dash.ara-staging.tyk.technology"
-	ErrLoginFailed       = errors.New("login failed")
-	cookieAuthorisation  = "cookieAuthorisation"
-	signature            = "signature"
-	ErrTokenNotFound     = errors.New("no token found")
-	ErrSignatureNotFound = errors.New("signature not found")
-	Env                  = "DEV"
-	userInfoPath         = "/api/users/whoami"
-	applicationJson      = "application/json"
-	contentType          = "Content-Type"
-	orgInfoPath          = "api/organisations/"
-	ErrorNoRoleFound     = errors.New("role not found")
+	DashboardUrl        = "https://dashboard.cloud-ara.tyk.io"
+	StagingURl          = "https://dash.ara-staging.tyk.technology"
+	ErrLoginFailed      = errors.New("login failed")
+	cookieAuthorisation = "cookieAuthorisation"
+	signature           = "signature"
+	userInfoPath        = "/api/users/whoami"
+	applicationJson     = "application/json"
+	contentType         = "Content-Type"
+	orgInfoPath         = "api/organisations/"
+	ErrorNoRoleFound    = errors.New("role not found")
+	ENV                 = "DEV"
 )
 
 func Provider() *schema.Provider {
 	return &schema.Provider{
 		Schema: map[string]*schema.Schema{
-			"basic_user": {
-				Type:        schema.TypeString,
-				Required:    true,
-				Sensitive:   true,
-				DefaultFunc: schema.EnvDefaultFunc("TYK_BASIC_USER", nil),
-			},
 			"email": {
 				Type:        schema.TypeString,
 				Required:    true,
@@ -56,6 +46,12 @@ func Provider() *schema.Provider {
 				Required:    true,
 				Sensitive:   true,
 				DefaultFunc: schema.EnvDefaultFunc("TYK_BASIC_PASS", nil),
+			},
+			"basic_user": {
+				Type:        schema.TypeString,
+				Required:    true,
+				Sensitive:   true,
+				DefaultFunc: schema.EnvDefaultFunc("TYK_BASIC_USER", nil),
 			},
 		},
 		ResourcesMap: map[string]*schema.Resource{
@@ -76,170 +72,95 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 	password := d.Get("password").(string)
 	basicUserName := d.Get("basic_user").(string)
 	basicPassword := d.Get("basic_pass").(string)
-
+	log.Println("The environment is", ENV)
 	var diags diag.Diagnostics
-	if email == "" {
-		return nil, diag.FromErr(errors.New("email is required"))
-	}
-	if password == "" {
-		return nil, diag.FromErr(errors.New("password is required"))
+	cookies, err := login(email, password, basicUserName, basicPassword, ENV == "DEV")
+	if err != nil {
+		return nil, diag.FromErr(err)
 	}
 	client := resty.New()
 	staging := false
-	if Env == "DEV" {
+	if ENV == "DEV" {
 		staging = true
 		client.SetBaseURL(StagingURl)
+		client.SetBasicAuth(basicUserName, basicPassword)
 	} else {
 		client.SetBaseURL(DashboardUrl)
+		client.SetAuthToken(createTokenFromCookies(cookies))
 	}
-	req := client.R()
-	if staging {
-		req = req.SetBasicAuth(basicUserName, basicPassword)
-	}
-	resp, err :=
-		req.SetHeader("Accept", "application/json").
-			SetBody(map[string]string{"email": email, "password": password}).
-			Post("api/login")
-	if err != nil {
-		return nil, diag.FromErr(err)
-	}
-	if resp.StatusCode() != http.StatusOK {
-		return nil, diag.FromErr(ErrLoginFailed)
-	}
-	var token string
-	var cookieSignature string
-	var tk string
-	var sig string
-	for _, cookie := range resp.Cookies() {
-		switch cookie.Name {
-		case cookieAuthorisation:
-			token = cookie.Value
-			tk = cookie.Value
-		case signature:
-
-			cookieSignature = cookie.Value
-			sig = cookie.Value
-		}
-
-	}
-	if len(token) == 0 {
-		return nil, diag.FromErr(ErrTokenNotFound)
-
-	}
-	if cookieSignature == "" {
-		return nil, diag.FromErr(ErrSignatureNotFound)
-
-	}
-	tn := fmt.Sprintf("%s.%s", token, cookieSignature)
+	client.SetCookies(cookies)
 	conf := cloud.Configuration{
 		DefaultHeader: map[string]string{},
 	}
-	///client.SetAuthToken(tn)
-	if staging {
-		client.SetBasicAuth(basicUserName, basicPassword)
-		client.SetCookie(&http.Cookie{
-			Name:  "cookieAuthorisation",
-			Value: tk,
-		})
-		client.SetCookie(&http.Cookie{
-			Name:  "signature",
-			Value: sig,
-		})
-	} else {
-		client.SetAuthToken(tn)
-	}
-	info, err := getUserInfo(ctx, client)
+	controllerUrl, err := createUserController(ctx, client, staging)
 	if err != nil {
 		return nil, diag.FromErr(err)
 	}
-	role, err := getUserRole(info.Roles)
-	if err != nil {
-		return nil, diag.FromErr(err)
-	}
-	log.Println("the organization id is", role.OrgID)
-	orgInfo, err := GetOrgInfo(ctx, client, role.OrgID)
-	if err != nil {
-		return nil, diag.FromErr(err)
-	}
-	controllerUrl, err := GenerateUrlFromZone(orgInfo.Organisation.Zone, staging)
-	if err != nil {
-		return nil, diag.FromErr(err)
-	}
-	t := fmt.Sprintf("Bearer %s", tn)
+	t := fmt.Sprintf("Bearer %s", createTokenFromCookies(cookies))
 	c := cloud.NewAPIClient(&conf)
 	conf.AddDefaultHeader("Authorization", t)
 	c.ChangeBasePath(controllerUrl)
 	return c, diags
 }
 
-func GetOrgInfo(ctx context.Context, client *resty.Client, orgId string) (*OrgInfo, error) {
-	var orgInfo OrgInfo
-	request := client.R().SetHeader(contentType, applicationJson)
-	request.SetContext(ctx).SetResult(&orgInfo)
-	log.Println("below organization id is", orgId)
-	path := fmt.Sprintf("%s%s", orgInfoPath, orgId)
-	response, err := request.Get(path)
-	if err != nil {
-		return nil, err
+func login(email, password, basicUserName, basicPassword string, staging bool) ([]*http.Cookie, error) {
+	if email == "" {
+		return nil, errors.New("email is required")
 	}
-	if response.StatusCode() != 200 {
-		return nil, NewGenericHttpError(response.String())
+	if password == "" {
+		return nil, errors.New("password is required")
 	}
 
-	return &orgInfo, nil
-}
-func getUserInfo(ctx context.Context, client *resty.Client) (*UserInfo, error) {
-	var userInfo UserInfo
-	request := client.R().SetHeader(contentType, applicationJson)
-	request.SetContext(ctx).SetResult(&userInfo)
-	resp, err := request.Get(userInfoPath)
+	client := resty.New()
+	if staging {
+		staging = true
+		client.SetBaseURL(StagingURl).SetBasicAuth(basicUserName, basicPassword)
+	} else {
+		client.SetBaseURL(DashboardUrl)
+	}
+	req := client.R()
+	resp, err :=
+		req.SetHeader("Accept", "application/json").
+			SetBody(map[string]string{"email": email, "password": password}).
+			Post("api/login")
 	if err != nil {
-		log.Println("i failed here check me", err)
 		return nil, err
 	}
-	if resp.StatusCode() != 200 {
-		log.Println("am failing here check it", resp.Request.Token)
+	if resp.StatusCode() != http.StatusOK && resp.Body() != nil {
 		return nil, NewGenericHttpError(resp.String())
 	}
-	return &userInfo, nil
-}
-
-type UserInfo struct {
-	UpdatedAt       time.Time `json:"updated_at"`
-	CreatedAt       time.Time `json:"created_at"`
-	PasswordUpdated time.Time `json:"password_updated"`
-	Email           string    `json:"email"`
-	LastName        string    `json:"lastName"`
-	AccountID       string    `json:"account_id"`
-	FirstName       string    `json:"firstName"`
-	ID              string    `json:"id"`
-	Roles           []Role    `json:"roles"`
-	HubspotID       int       `json:"hubspot_id"`
-	IsActive        bool      `json:"is_active"`
-	IsEmailVerified bool      `json:"is_email_verified"`
-}
-
-type Role struct {
-	Role      string `json:"role"`
-	OrgID     string `json:"org_id"`
-	TeamID    string `json:"team_id"`
-	OrgName   string `json:"org_name"`
-	TeamName  string `json:"team_name"`
-	AccountID string `json:"account_id"`
-}
-
-type OrgInfo struct {
-	Organisation cloud.Organisation `json:"Organisation"`
-}
-
-// / getUserRole returns the user role.
-func getUserRole(roles []Role) (*Role, error) {
-	roleList := []string{"org_admin", "team_admin", "team_member"}
-	for _, role := range roles {
-		contain := slices.Contains(roleList, role.Role)
-		if contain {
-			return &role, nil
-		}
+	if resp.StatusCode() != http.StatusOK {
+		return nil, ErrLoginFailed
 	}
-	return nil, ErrorNoRoleFound
+	return resp.Cookies(), nil
+}
+
+func createTokenFromCookies(cookies []*http.Cookie) string {
+	var cookieAuth, cookieSignature string
+	for _, cookie := range cookies {
+		switch cookie.Name {
+		case cookieAuthorisation:
+			cookieAuth = cookie.Value
+		case signature:
+			cookieSignature = cookie.Value
+		}
+
+	}
+	return fmt.Sprintf("%s.%s", cookieAuth, cookieSignature)
+}
+func createUserController(ctx context.Context, client *resty.Client, staging bool) (string, error) {
+	info, err := getUserInfo(ctx, client)
+	if err != nil {
+		return "", err
+	}
+	role, err := getUserRole(info.Roles)
+	if err != nil {
+		return "", err
+	}
+	orgInfo, err := GetOrgInfo(ctx, client, role.OrgID)
+	if err != nil {
+		return "", err
+	}
+	return GenerateUrlFromZone(orgInfo.Organisation.Zone, staging)
+
 }

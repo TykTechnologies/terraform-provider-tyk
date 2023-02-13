@@ -7,7 +7,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"log"
 	"time"
 )
 
@@ -102,7 +101,18 @@ func resourceDeploymentDelete(ctx context.Context, data *schema.ResourceData, m 
 	envUid := data.Get("env_uid").(string)
 	//de := data.Get("delete").(bool)
 	purge := data.Get("purge").(bool)
-	_, _, err := client.DeploymentsApi.DestroyDeployment(ctx, orgId, teamUid, envUid, uid, &cloud.DeploymentsApiDestroyDeploymentOpts{
+	deployStateConf := &resource.StateChangeConf{
+		Delay:   3 * time.Second,
+		Pending: []string{StatePreDeploy, StateDeploying, StateFailing, StateUpdating},
+		Refresh: checkDeploymentStatusChange(ctx, client, orgId, teamUid, envUid, uid),
+		Target:  []string{StateDeployed, StateFailed, StateDestroyed},
+		Timeout: DeploymentStatusTimeout,
+	}
+	_, err := deployStateConf.WaitForStateContext(ctx)
+	if err != nil {
+		return diag.FromErr(err)
+	}
+	_, _, err = client.DeploymentsApi.DestroyDeployment(ctx, orgId, teamUid, envUid, uid, &cloud.DeploymentsApiDestroyDeploymentOpts{
 		///Delete: optional.NewBool(false),
 		Purge: optional.NewBool(purge),
 	})
@@ -126,12 +136,8 @@ func resourceDeploymentUpdate(ctx context.Context, data *schema.ResourceData, m 
 		deployment := cloud.Deployment{
 			Name: name,
 		}
-		payload, _, err := client.DeploymentsApi.UpdateDeployment(ctx, deployment, orgId, teamUid, envUid, uid, nil)
+		_, _, err := client.DeploymentsApi.UpdateDeployment(ctx, deployment, orgId, teamUid, envUid, uid, nil)
 		if err != nil {
-			log.Println("error is:", err)
-			log.Println("here it is", payload)
-			log.Println("here it is", payload.Error_)
-			log.Println("here it is", payload.Payload)
 			return diag.FromErr(err)
 		}
 		if err := data.Set("last_updated", time.Now().Format(time.RFC850)); err != nil {
@@ -202,7 +208,6 @@ func resourceDeploymentCreate(ctx context.Context, data *schema.ResourceData, m 
 	}
 	createDeployment, _, err := client.DeploymentsApi.CreateDeployment(ctx, deployment, orgId, teamUid, envUid)
 	if err != nil {
-		log.Println(err)
 		return diag.FromErr(err)
 	}
 	data.SetId(createDeployment.Payload.UID)
@@ -211,18 +216,19 @@ func resourceDeploymentCreate(ctx context.Context, data *schema.ResourceData, m 
 		if err != nil {
 			return diag.FromErr(err)
 		}
+		deployStateConf := &resource.StateChangeConf{
+			Delay:   10 * time.Second,
+			Pending: []string{StateInitialise, StatePreDeploy, StateDeploying},
+			Refresh: checkDeploymentStatusChange(ctx, client, orgId, teamUid, envUid, createDeployment.Payload.UID),
+			Target:  []string{StateDeployed},
+			Timeout: DeploymentStatusTimeout,
+		}
+		_, err = deployStateConf.WaitForStateContext(ctx)
+		if err != nil {
+			return diag.FromErr(err)
+		}
 	}
-	deployStateConf := &resource.StateChangeConf{
-		Delay:   10 * time.Second,
-		Pending: []string{StateInitialise, StatePreDeploy, StateDeploying},
-		Refresh: checkDeploymentStatusChange(ctx, client, orgId, teamUid, envUid, createDeployment.Payload.UID),
-		Target:  []string{StateDeployed},
-		Timeout: DeploymentStatusTimeout,
-	}
-	_, err = deployStateConf.WaitForStateContext(ctx)
-	if err != nil {
-		return diag.FromErr(err)
-	}
+
 	resourceDeploymentRead(ctx, data, m)
 	return diags
 }
